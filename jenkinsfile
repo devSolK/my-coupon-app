@@ -1,0 +1,55 @@
+pipeline {
+    agent any
+
+    environment {
+        // Node.js 도구 이름 (젠킨스 설정에서 지정한 이름과 같아야 합니다)
+        NODEJS_HOME = tool 'nodejs' 
+        PATH = "${NODEJS_HOME}"
+    }
+
+    stages {
+        stage('1. 준비 (Environment Setup)') {
+            steps {
+                echo '>>> 패키지 설치 및 환경 준비 중...'
+                // Newman과 서버 구동에 필요한 express 설치
+                sh 'npm install'
+                sh 'npm install -g newman newman-reporter-htmlextra'
+            }
+        }
+
+        stage('2. 백엔드 서버 가동 (Start Mock Server)') {
+            steps {
+                echo '>>> 로컬 테스트 서버(server.js) 실행 중...'
+                // 서버를 백그라운드(&)로 띄우고 잠시 대기
+                sh 'node server.js &'
+                sleep time: 5, unit: 'SECONDS'
+            }
+        }
+
+        stage('3. API 자동화 테스트 (Run Newman)') {
+            steps {
+                echo '>>> Newman을 이용한 API 테스트 수행 중...'
+                // -r htmlextra 리포트 생성 포함
+                sh 'newman run collection.json -e env.json -r htmlextra --reporter-htmlextra-export results/api-report.html'
+            }
+        }
+    }
+
+    post {
+        always {
+            echo '>>> 테스트 결과 리포트 보관 중...'
+            // 생성된 HTML 리포트를 젠킨스 빌드 결과 화면에 박제
+            archiveArtifacts artifacts: 'results/*.html', fingerprint: true
+
+            echo '>>> 테스트 서버 종료 중...'
+            // 실행 중인 노드 서버 프로세스 종료 (포트 3000 기준)
+            sh "fuser -k 3000/tcp || true"
+        }
+        success {
+            echo ':white_check_mark: 모든 API 테스트가 성공적으로 완료되었습니다!'
+        }
+        failure {
+            echo ':x: 테스트 실패 또는 빌드 에러가 발생했습니다. 리포트를 확인하세요.'
+        }
+    }
+}
